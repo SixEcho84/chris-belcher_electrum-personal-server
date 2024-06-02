@@ -4,6 +4,7 @@ from datetime import datetime
 import ssl
 import os
 import os.path
+import sys
 import logging
 import tempfile
 import platform
@@ -104,8 +105,13 @@ def run_electrum_server(rpc, txmonitor, config):
         "poll_interval_listening"))
     poll_interval_connected = int(config.get("bitcoin-rpc",
         "poll_interval_connected"))
-    certfile, keyfile = get_certs(config)
-    logger.debug('using cert: {}, key: {}'.format(certfile, keyfile))
+    certfile, keyfile = ('','');
+    use_ssl = config.getboolean("electrum-server", "use_ssl", fallback=True)
+    if use_ssl:
+        certfile, keyfile = get_certs(config)
+        logger.debug('using cert: {}, key: {}'.format(certfile, keyfile))
+    else:
+        logger.warn('using plain socket')
     disable_mempool_fee_histogram = config.getboolean("electrum-server",
         "disable_mempool_fee_histogram", fallback=False)
     mempool_update_interval = int(config.get("bitcoin-rpc",
@@ -144,9 +150,10 @@ def run_electrum_server(rpc, txmonitor, config):
                         for ipnet in ip_whitelist]):
                     logger.debug(addr[0] + " not in whitelist, closing")
                     raise ConnectionRefusedError()
-                sock = ssl.wrap_socket(sock, server_side=True,
-                    certfile=certfile, keyfile=keyfile,
-                    ssl_version=ssl.PROTOCOL_SSLv23)
+                if use_ssl:
+                    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                    context.load_cert_chain(certfile, keyfile)
+                    sock = context.wrap_socket(sock, server_side=True)
             except socket.timeout:
                 poll_interval_change = mempool_sync.poll_update(1)
                 if poll_interval_change == PollIntervalChange.FAST_POLLING:
@@ -560,4 +567,3 @@ if __name__ == "__main__":
         os.system("pause")
 
     sys.exit(res)
-
